@@ -9,4 +9,6 @@ dependencies = [
     "ipynb>=0.5.1",
     "langchain>=1.4.3",
     "pypdf>=6.19.0",
+    "qdrant-client>=1.19.1",
+    "sentence-transformers>=6.1.0",
 ]
