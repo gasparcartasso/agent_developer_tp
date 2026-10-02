@@ -12,6 +12,7 @@ name = "agent-developer-tp"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "ipykernel" },
     { name = "ipynb" },
     { name = "langchain" },
@@ -22,6 +23,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "ipykernel", specifier = ">=7.4.0" },
     { name = "ipynb", specifier = ">=0.5.1" },
     { name = "langchain", specifier = ">=1.4.3" },
