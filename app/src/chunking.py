@@ -4,7 +4,11 @@ import uuid
 import pandas as pd
 from qdrant_client.http import models
 from qdrant_client import QdrantClient
+from fastembed import SparseTextEmbedding
 from pathlib import Path
+
+def to_uuid(s: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, s))
 
 class Chunker:
     def __init__(self, embedding_model:str = "all-MiniLM-L6-v2",threshold:float = 0.99):
@@ -53,12 +57,12 @@ class Chunker:
                 "document": document_name,
                 "index": index,
                 "chunk": text,
-                "id": str(uuid.uuid4())
+                "id": to_uuid(str(document_name) + "_" + str(index))
             })
         return pd.DataFrame(all_chunks)
 
 class Qdrantcollection:
-    def __init__(self, path:str = "qdrant", collection_name:str = None,embedding_model:str = "all-MiniLM-L6-v2"):
+    def __init__(self, path:str = "qdrant", collection_name:str = None,embedding_model:str = "all-MiniLM-L6-v2",sparse_vector_model:str = "Qdrant/bm25"):
         DATA_DIR = Path("app/data")
         self.path = DATA_DIR / path
         if collection_name is None:
@@ -66,6 +70,7 @@ class Qdrantcollection:
         else:    
             self.collection_name = collection_name
         self.encoder = SentenceTransformer(embedding_model)
+        self.bm25_model = SparseTextEmbedding(sparse_vector_model)
         self.path.mkdir(
             parents=True,
             exist_ok=True,
@@ -79,18 +84,30 @@ class Qdrantcollection:
         if not self.client.collection_exists(collection_name):
             self.client.create_collection(
                 collection_name=collection_name,
-                vectors_config=models.VectorParams(
-                    size=self.encoder.get_embedding_dimension(),
-                    distance=models.Distance.COSINE
-                ),
+                vectors_config={
+                    "dense": models.VectorParams(
+                        size=self.encoder.get_embedding_dimension(),
+                        distance=models.Distance.COSINE,
+                    )
+                },
+                sparse_vectors_config={
+                    "bm25": models.SparseVectorParams(modifier=models.Modifier.IDF)
+                },
             )
     def upsert_chunks(self, chunks:pd.DataFrame):
+        sparse_vecs = list(self.bm25_model.embed(chunks['chunk'].tolist()))
         embeddings = self.encoder.encode(chunks['chunk'].tolist(),show_progress_bar=False)
         points = []
         for i, (chunk, vector) in enumerate(zip(chunks['chunk'], embeddings)):
             point = models.PointStruct(
                 id=chunks['id'].iloc[i],
-                vector=vector.tolist(),
+                vector={
+                "dense": vector.tolist(),
+                "bm25": models.SparseVector(
+                    indices=sparse_vecs[i].indices.tolist(),
+                    values=sparse_vecs[i].values.tolist(),
+                ),
+            },
                 payload={
                     "text": chunk,
                     "document": chunks['document'].iloc[i],
@@ -102,11 +119,30 @@ class Qdrantcollection:
             collection_name=self.collection_name,
             points=points
         )
-    def search_query(self, query:str, top_k:int = 5):
-        query_embedding = self.encoder.encode([query],show_progress_bar=False)[0]
-        search_result = self.client.query_points(
+    def search_query(self, query: str, top_k: int = 5, prefetch_k: int = 50):
+        dense_q = self.encoder.encode([query], show_progress_bar=False)[0]
+        sparse_q = next(self.bm25_model.query_embed(query))  
+
+        return self.client.query_points(
             collection_name=self.collection_name,
-            query=query_embedding.tolist(),
-            limit=top_k
+            prefetch=[
+                models.Prefetch(
+                    query=dense_q.tolist(),
+                    using="dense",
+                    limit=prefetch_k,
+                ),
+                models.Prefetch(
+                    query=models.SparseVector(
+                        indices=sparse_q.indices.tolist(),
+                        values=sparse_q.values.tolist(),
+                    ),
+                    using="bm25",
+                    limit=prefetch_k,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=top_k,
+            with_payload=True,
         )
-        return search_result
+    def delete_collection(self):
+        self.client.delete_collection(self.collection_name)
