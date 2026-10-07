@@ -121,7 +121,7 @@ class Qdrantcollection:
         )
     def search_query(self, query: str, top_k: int = 5, prefetch_k: int = 50):
         dense_q = self.encoder.encode([query], show_progress_bar=False)[0]
-        sparse_q = next(self.bm25_model.query_embed(query))  
+        sparse_q = next(self.bm25_model.query_embed(query))
 
         return self.client.query_points(
             collection_name=self.collection_name,
