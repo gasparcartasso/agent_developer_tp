@@ -123,7 +123,7 @@ class Qdrantcollection:
         dense_q = self.encoder.encode([query], show_progress_bar=False)[0]
         sparse_q = next(self.bm25_model.query_embed(query))
 
-        return self.client.query_points(
+        query_result = self.client.query_points(
             collection_name=self.collection_name,
             prefetch=[
                 models.Prefetch(
@@ -144,5 +144,6 @@ class Qdrantcollection:
             limit=top_k,
             with_payload=True,
         )
+        return [point.payload for point in query_result.points]
     def delete_collection(self):
         self.client.delete_collection(self.collection_name)
