@@ -20,5 +20,6 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "sentence-transformers>=6.1.0",
     "shortuuid>=1.0.13",
+    "streamlit[auth]>=1.65.0",
     "tiktoken>=0.14.0",
 ]

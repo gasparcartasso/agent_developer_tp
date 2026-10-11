@@ -181,29 +181,30 @@ def build_context(request: ModelRequest) -> str:
 # --------------------------------------------------------------------------
 # 6. ONE AGENT
 # --------------------------------------------------------------------------
-get_kb()  # open Qdrant once, in the main thread, before any tool runs
-agent = create_agent(
-    model=llm,
-    tools=[search_knowledge_base, load_skill, read_skill_resource, save_memory],
-    middleware=[
-        build_context,                                   # skills + memory + policies
-        SummarizationMiddleware(                         # conversational memory
-            model=llm,
-            trigger=("tokens", 3000),
-            keep=("messages", 4),
-        ),
-        ModelCallLimitMiddleware(run_limit=10),          # loop guards
-        ToolCallLimitMiddleware(run_limit=6),
-    ],
-    store=InMemoryStore(),          # long-term memory (lost on restart)
-    checkpointer=InMemorySaver(),   # short-term memory per thread_id
-    context_schema=Ctx,
-)
-
-def ask(text: str, user: str, thread: str, project: str = "kb") -> str:
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": text}]},
-        config={"configurable": {"thread_id": thread}},
-        context=Ctx(user_id=user, project_id=project),
-    )
-    return result["messages"][-1].content
+class SuperAgent:
+    def __init__(self):
+        get_kb()  # open Qdrant once, in the main thread, before any tool runs
+        self.agent = create_agent(
+                    model=llm,
+                    tools=[search_knowledge_base, load_skill, read_skill_resource, save_memory],
+                    middleware=[
+                build_context,                                   # skills + memory + policies
+                SummarizationMiddleware(                         # conversational memory
+                    model=llm,
+                    trigger=("tokens", 3000),
+                    keep=("messages", 4),
+                ),
+                ModelCallLimitMiddleware(run_limit=10),          # loop guards
+                ToolCallLimitMiddleware(run_limit=6),
+            ],
+            store=InMemoryStore(),          # long-term memory (lost on restart)
+            checkpointer=InMemorySaver(),   # short-term memory per thread_id
+            context_schema=Ctx,
+        )
+    def ask(self,text: str, user: str, thread: str, project: str = "kb") -> str:
+        result = self.agent.invoke(
+            {"messages": [{"role": "user", "content": text}]},
+            config={"configurable": {"thread_id": thread}},
+            context=Ctx(user_id=user, project_id=project),
+        )
+        return result["messages"]
