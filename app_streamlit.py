@@ -1,6 +1,7 @@
 import hmac
 import streamlit as st
 from app.src.agent_builder import SuperAgent
+import uuid
 
 def check_login():
     if st.session_state.get("authenticated"):
@@ -30,6 +31,13 @@ if st.sidebar.button("Log out"):
     st.rerun()
 
 st.title("Email triage and response")
+@st.cache_resource
+def get_agent() -> SuperAgent:
+    return SuperAgent()
+
+super_agent = get_agent()
+if "thread_id" not in st.session_state:
+    st.session_state["thread_id"] = f"{st.session_state['user']}-{uuid.uuid4().hex[:8]}"
 super_agent = SuperAgent()
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
@@ -44,8 +52,8 @@ if prompt := st.chat_input():
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                response = super_agent.ask(prompt,user=st.session_state["user"], thread="thread1", project="kb")
-                answer = response["output"]
+                response = super_agent.ask(prompt,user=st.session_state["user"],thread=st.session_state["thread_id"],project="kb",)
+                answer = response[-1].content
             except Exception as e:
                 answer = f"Sorry, I ran into an error answering that: {e}"
         try:
@@ -53,3 +61,4 @@ if prompt := st.chat_input():
           st.session_state.messages.append({"role": "assistant", "content": answer[0]['text']})
         except:
           st.write(answer)
+          
