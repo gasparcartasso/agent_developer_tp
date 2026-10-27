@@ -52,7 +52,7 @@ if prompt := st.chat_input():
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                response = super_agent.invoke({"email_body": prompt}, config={"configurable": {"user": st.session_state["user"], "thread": st.session_state["thread_id"], "project": "kb"}})
+                response = super_agent.invoke({"email_body": prompt, "user": st.session_state["user"], "thread": st.session_state["thread_id"], "project": "kb"})
                 answer = response["draft_response"]
             except Exception as e:
                 answer = f"Sorry, I ran into an error answering that: {e}"

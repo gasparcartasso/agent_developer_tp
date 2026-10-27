@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import TypedDict
  
 from langchain.chat_models import init_chat_model
 from langchain_ollama import ChatOllama
@@ -19,6 +19,9 @@ llm = ChatOllama(
 
 class EmailState(TypedDict, total=False):
     email_body: str
+    user: str | None
+    thread: str | None
+    project: str | None
     member_number: int | None
     is_question_about_policy: bool
     knowledge_base_results: str
@@ -37,7 +40,7 @@ def node_triage_email(state:EmailState) -> EmailState:
 
 def node_search_knowledge_base(state:EmailState) -> EmailState:
     search_policy = SearchKnowledgeBaseAgent()
-    knowledge_base_results = search_policy.ask(state["email_body"])
+    knowledge_base_results = search_policy.ask(state["email_body"], user=state.get("user"), thread=state.get("thread"), project=state.get("project"))
     return {'knowledge_base_results': knowledge_base_results.final_answer}
 
 def node_search_member_info(state:EmailState) -> EmailState:
