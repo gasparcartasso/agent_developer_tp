@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pyexpat.errors import messages
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from langchain import messages
 import yaml
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -18,7 +21,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
-
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from app.src.ragging import Qdrantcollection
 
 SKILLS_DIR = Path("skills")
@@ -180,7 +183,7 @@ def build_context(request: ModelRequest) -> str:
 # --------------------------------------------------------------------------
 # 6. ONE AGENT
 # --------------------------------------------------------------------------
-class SuperAgent:
+class SearchKnowledgeBaseAgent:
     def __init__(self):
         get_kb()  # open Qdrant once, in the main thread, before any tool runs
         self.agent = create_agent(
@@ -200,10 +203,64 @@ class SuperAgent:
             checkpointer=InMemorySaver(),   # short-term memory per thread_id
             context_schema=Ctx,
         )
-    def ask(self,text: str, user: str, thread: str, project: str = "kb") -> str:
+    def ask(self,text: str, user: str, thread: str, project: str = "kb") -> dict[str,Any]:
         result = self.agent.invoke(
             {"messages": [{"role": "user", "content": text}]},
             config={"configurable": {"thread_id": thread}},
             context=Ctx(user_id=user, project_id=project),
         )
-        return result["messages"]
+        final_answer = ""
+        user_query = ""
+        tools_called = []
+    
+        # Token counters
+        total_input_tokens = 0
+        total_output_tokens = 0
+    
+        # Intermediate storage to map tool calls to their outputs
+        pending_tool_calls: dict[str, dict[str, Any]] = {}
+    
+        for msg in result['messages']:
+            # Extract initial query
+            if isinstance(msg, HumanMessage) and not user_query:
+                user_query = msg.content
+    
+            # Extract AI tool calls, token usage, and final response
+            elif isinstance(msg, AIMessage):
+                # Accumulate token metrics across intermediate steps
+                if msg.usage_metadata:
+                    total_input_tokens += msg.usage_metadata.get("input_tokens", 0)
+                    total_output_tokens += msg.usage_metadata.get("output_tokens", 0)
+    
+                # Record tool calls requested by the model
+                if msg.tool_calls:
+                    for call in msg.tool_calls:
+                        call_id = call.get("id")
+                        tool_info = {
+                            "tool_name": call.get("name"),
+                            "arguments": call.get("args"),
+                            "output": None,  # Will be populated by ToolMessage
+                        }
+                        pending_tool_calls[call_id] = tool_info
+                        tools_called.append(tool_info)
+    
+                # Track latest text output (last AIMessage content is the final answer)
+                if msg.content:
+                    final_answer = msg.content
+    
+            # Match tool outputs back to corresponding tool calls
+            elif isinstance(msg, ToolMessage):
+                tool_id = msg.tool_call_id
+                if tool_id in pending_tool_calls:
+                    pending_tool_calls[tool_id]["output"] = msg.content
+    
+        return {
+            "user_query": user_query,
+            "final_answer": final_answer,
+            "tools_called": tools_called,
+            "tokens_consumed": {
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "total_tokens": total_input_tokens + total_output_tokens,
+            },
+        }

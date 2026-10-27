@@ -1,6 +1,6 @@
 import hmac
 import streamlit as st
-from app.src.agent_builder import SuperAgent
+from app.src.triage_graph import generate_graph
 import uuid
 
 def check_login():
@@ -32,13 +32,13 @@ if st.sidebar.button("Log out"):
 
 st.title("Email triage and response")
 @st.cache_resource
-def get_agent() -> SuperAgent:
-    return SuperAgent()
+def get_agent() -> generate_graph:
+    return generate_graph()
 
 super_agent = get_agent()
 if "thread_id" not in st.session_state:
     st.session_state["thread_id"] = f"{st.session_state['user']}-{uuid.uuid4().hex[:8]}"
-super_agent = SuperAgent()
+super_agent = generate_graph()
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
         {"role": "assistant", "content": "How can I help you with your emails today?"}
@@ -52,8 +52,8 @@ if prompt := st.chat_input():
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                response = super_agent.ask(prompt,user=st.session_state["user"],thread=st.session_state["thread_id"],project="kb",)
-                answer = response[-1].content
+                response = super_agent.invoke({"email_body": prompt}, config={"configurable": {"user": st.session_state["user"], "thread": st.session_state["thread_id"], "project": "kb"}})
+                answer = response["draft_response"]
             except Exception as e:
                 answer = f"Sorry, I ran into an error answering that: {e}"
         try:
