@@ -64,9 +64,8 @@ START -> triage_email -> [is policy question?]
 
    Keys are usernames and values are passwords. Do not commit this file.
 
-4. **Add skills** (used by the knowledge-base agent) as `skills/<skill-name>/SKILL.md`, each with YAML front matter containing `name` and `description`. A skill named `knowledge-base-answering` is loaded into every prompt.
 
-5. **Index your documents** into the Qdrant collection before running the app.
+5. **Index your documents** into the Qdrant collection before running the app with `create_db.py`.
 
 ## Running
 
