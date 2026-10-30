@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from langgraph.types import Command, interrupt
 from app.src.agent_search_knowleadge import SearchKnowledgeBaseAgent
+from app.src.agent_member_info import SearchMemberInfoAgent
 
 llm = ChatOllama(
     model="qwen3:8b",
@@ -40,20 +41,21 @@ def node_triage_email(state:EmailState) -> EmailState:
 
 def node_search_knowledge_base(state:EmailState) -> EmailState:
     search_policy = SearchKnowledgeBaseAgent()
-    knowledge_base_results = search_policy.ask(state["email_body"], user=state.get("user"), thread=state.get("thread"), project=state.get("project"))
-    return {'knowledge_base_results': knowledge_base_results.final_answer}
+    knowledge_base_results = search_policy.ask(f"{state["email_body"]}\n\n{state['member_info']}", user=state.get("user"), thread=state.get("thread"), project=state.get("project"))
+    return {'knowledge_base_results': knowledge_base_results.get("final_answer")}
 
 def node_search_member_info(state:EmailState) -> EmailState:
-
-    return {'member_info':'this is a place holder for member info'}
+    search_member_info = SearchMemberInfoAgent()
+    member_info = search_member_info.ask(f"Search this member number {state["member_number"]} and retrieve their information", user=state.get("user"), thread=state.get("thread"), project=state.get("project"))
+    return {'member_info': member_info.get("final_answer")}
 
 def node_draft_response(state:EmailState) -> EmailState:
+    llm_draft = llm.invoke(f"Draft a response to this email: {state['email_body']}\n\nUse the following information to help you answer: {state['knowledge_base_results']}\n\n{state['member_info']}")
+    return {'draft_response': llm_draft}
 
-    return {'draft_response':'this is a place holder for draft response'}
-
-def route_question(state: EmailState) -> list[str] | str:
+def route_question(state: EmailState) -> str:
     if state["is_question_about_policy"]:
-        return ["search_knowledge_base", "search_member_info"]
+        return "search_member_info"
     return END
 
 def generate_graph():
@@ -61,6 +63,7 @@ def generate_graph():
     graph.add_node("triage_email", node_triage_email).add_node("search_knowledge_base", node_search_knowledge_base).add_node("search_member_info", node_search_member_info).add_node("draft_response", node_draft_response)
     graph.add_edge(START,"triage_email")
     graph.add_conditional_edges("triage_email", route_question)
-    graph.add_edge(['search_knowledge_base','search_member_info'],"draft_response")
+    graph.add_edge('search_member_info',"search_knowledge_base")
+    graph.add_edge('search_knowledge_base',"draft_response")
     graph.add_edge("draft_response",END)
-    return graph.compile(checkpointer=MemorySaver())
+    return graph.compile()

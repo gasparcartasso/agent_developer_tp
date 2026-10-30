@@ -53,12 +53,11 @@ if prompt := st.chat_input():
         with st.spinner("Thinking..."):
             try:
                 response = super_agent.invoke({"email_body": prompt, "user": st.session_state["user"], "thread": st.session_state["thread_id"], "project": "kb"})
-                answer = response["draft_response"]
             except Exception as e:
                 answer = f"Sorry, I ran into an error answering that: {e}"
         try:
-          st.write(answer[0]['text'])
-          st.session_state.messages.append({"role": "assistant", "content": answer[0]['text']})
+          st.write(response)
+          st.session_state.messages.append({"role": "assistant", "content": response})
         except:
           st.write(answer)
           

@@ -24,7 +24,7 @@ from langgraph.store.memory import InMemoryStore
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from app.src.ragging import Qdrantcollection
 
-SKILLS_DIR = Path("skills")
+SKILLS_DIR = Path(__file__).parent / "skills"
 COLLECTION = "bupa cover"
 
 # Skills whose full text is injected into EVERY prompt (good for small local
@@ -87,7 +87,7 @@ def search_knowledge_base(query: str) -> str:
 # --------------------------------------------------------------------------
 def read_skills() -> dict[str, dict]:
     skills = {}
-    for path in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+    for path in sorted(SKILLS_DIR.glob("*/skill.md")):
         _, fm, body = path.read_text(encoding="utf-8").split("---", 2)
         meta = yaml.safe_load(fm)
         skills[meta["name"]] = {"description": meta["description"], "body": body.strip()}
