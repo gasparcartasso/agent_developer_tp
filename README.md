@@ -1,6 +1,6 @@
 # Email Triage and Response (Streamlit App)
 
-A Streamlit chat front end for an email triage and response agent. Users log in, paste the body of an email, and the app runs it through a LangGraph workflow that classifies the email, looks up the member's details in a SQL database, searches the policy knowledge base, and drafts a reply.
+A Streamlit chat front end for an email triage and response agent. Users log in, paste the body of an email, and the app runs it through a LangGraph workflow that classifies the email, looks up the member's details in a SQL database, searches the policy knowledge base, and drafts a reply. The draft is then paused for human review: the user can approve it or edit it before it is sent.
 
 The UI lives in `app_streamlit.py`. The workflow it calls is built in `app/src/triage_graph.py`, which in turn uses two agents:
 
@@ -12,19 +12,21 @@ The UI lives in `app_streamlit.py`. The workflow it calls is built in `app/src/t
 - **Login gate**: username/password form backed by `st.secrets`, with constant-time password comparison (`hmac.compare_digest`).
 - **Session handling**: logged-in user shown in the sidebar, with a log out button that clears the session.
 - **Chat interface**: standard Streamlit chat UI with message history kept in `st.session_state`.
-- **Per-session thread ID**: each session gets a thread ID of the form `<user>-<8 hex chars>`, passed to the graph (along with the user and the project, `kb`) so agent state can be tracked per user and session.
-- **Structured triage**: a local LLM extracts the member number and decides whether the email is a policy/coverage question.
+- **Per-session thread ID**: each session gets a thread ID of the form `<user>-<8 hex chars>`, passed to the graph (along with the user and the project, `kb`) so agent state can be tracked per user and session. The same thread ID is used to resume the graph after human review.
+- **Structured triage**: a local LLM extracts the member number and decides whether the email is a policy/coverage question. Emails that are not about policy get a short "no further action needed" reply.
 - **Member lookup**: a SQL agent queries a SQLite `member_info` table using the extracted member number.
 - **Knowledge-base search**: a RAG agent retrieves relevant policy passages and answers using the email and the member's details.
-- **Drafted reply**: the final node drafts a response from the email, the policy answer and the member info.
+- **Drafted reply**: the draft node writes a response from the email, the policy answer and the member info.
+- **Human-in-the-loop review**: the graph pauses (LangGraph `interrupt`) after drafting. The UI shows the draft and the member number in an editable text area, with two actions: **Approve & send** (use the draft as is) or **Send edited version** (use the edited text).
+- **Chat locked during review**: the chat input is disabled while a draft is waiting, so only one draft is pending per session.
 - **Agent guard rails**: both agents use model-call and tool-call limits, conversation summarisation, and a write gate on long-term memory that rejects secrets (passwords, tokens, etc.).
-- **Error handling**: exceptions from the graph are shown in the chat as a friendly message rather than crashing the app.
+- **Error handling**: exceptions from the graph (including during resume) are shown in the chat as a friendly message rather than crashing the app.
 
 ## Triage workflow (`triage_graph.py`)
 
 ```
 START -> triage_email -> [is policy question?]
-                            |-- yes -> search_member_info -> search_knowledge_base -> draft_response -> END
+                            |-- yes -> search_member_info -> search_knowledge_base -> draft_response -> human_in_the_loop -> END
                             |-- no  -> END
 ```
 
@@ -34,6 +36,9 @@ START -> triage_email -> [is policy question?]
 | `search_member_info` | Runs `SearchMemberInfoAgent` (SQL agent over `member_info.db`) to retrieve the member's details |
 | `search_knowledge_base` | Runs `SearchKnowledgeBaseAgent` (RAG over Qdrant, with skills and memory), passing it the email body and the member info |
 | `draft_response` | Asks the LLM to draft a reply using the email, the knowledge-base answer and the member info |
+| `human_in_the_loop` | Pauses the graph with `interrupt(...)` and waits for a human decision. On resume, records `approved`, or `edited` together with the edited draft |
+
+The graph is compiled with an `InMemorySaver` checkpointer, which is required for `interrupt` to pause and resume. Paused drafts are therefore lost if the app restarts.
 
 ### Graph state (`EmailState`)
 
@@ -45,7 +50,17 @@ START -> triage_email -> [is policy question?]
 | `is_question_about_policy` | Triage decision used for routing |
 | `member_info` | Final answer from the member info agent |
 | `knowledge_base_results` | Final answer from the knowledge-base agent |
-| `draft_response` | Drafted reply |
+| `draft_response` | Drafted reply (replaced by the edited text if the reviewer edits it) |
+| `human_decision` | Reviewer's decision: `approved` or `edited` |
+
+### Human review flow
+
+1. The app calls `super_agent.invoke({...}, config=config)` with the email and caller context.
+2. If the result contains `__interrupt__`, the app stores the result in `st.session_state["pending"]` and renders the review UI on every rerun. The interrupt payload is `{"instruction": "Approve or edit this content", "content": <draft>}`.
+3. The reviewer clicks a button. The app resumes the graph on the same thread with `Command(resume=decision)`, where `decision` is one of:
+   - `{"human_decision": "approved"}`
+   - `{"human_decision": "edited", "draft_response": "<edited text>"}`
+4. The result is shown in the chat, `pending` is cleared, and the chat input is re-enabled.
 
 ## Agents
 
@@ -90,7 +105,6 @@ Both agents are built with `langchain.agents.create_agent` on `qwen3:8b` via Oll
 
    This creates a `.venv` and installs the packages listed in `pyproject.toml` (pinned by `uv.lock`).
 
-
 2. **Pull the model**
 
    ```bash
@@ -133,13 +147,13 @@ From the project root, so the `app.src...` imports resolve:
 uv run streamlit run app_streamlit.py
 ```
 
-Then open the URL Streamlit prints (usually http://localhost:8501), log in, and paste an email into the chat box. The email should include the member's number, since triage extracts it.
+Then open the URL Streamlit prints (usually http://localhost:8501) and log in. Paste an email into the chat box; it should include the member's number, since triage extracts it. If the email is a policy or coverage question, a draft reply appears for review. Edit it if needed, then click **Approve & send** or **Send edited version**.
 
 ## Project structure
 
 ```
 .
-├── app_streamlit.py                    # Streamlit UI
+├── app_streamlit.py                    # Streamlit UI (login, chat, draft review)
 ├── pyproject.toml                      # dependencies (used by uv sync)
 ├── uv.lock                             # locked versions
 ├── create_db.py                        # Chunks and indexes the policy text into Qdrant
@@ -156,7 +170,7 @@ Then open the URL Streamlit prints (usually http://localhost:8501), log in, and 
     │   └── qdrant/
     │          └──collection/bupa cover/strorage.sqlite #Qdrant vector search (generated)
     └── src/
-        ├── triage_graph.py             # LangGraph email triage workflow
+        ├── triage_graph.py             # LangGraph email triage workflow (with human review)
         ├── agent_member_info.py        # SQL agent for member lookup
         ├── agent_search_knowleadge.py  # RAG agent with skills + memory
         ├── ragging.py                  # Chunker and Qdrant collection wrapper
@@ -167,6 +181,14 @@ Then open the URL Streamlit prints (usually http://localhost:8501), log in, and 
                 └── skill.md
 ```
 
+## Known limitations
+
+- **No email is actually sent yet.** "Approve & send" and "Send edited version" record the reviewer's decision (`human_decision`) and end the graph; nothing is delivered. Add a send node (or call your mail API after the resume) to complete the flow.
+- **Result shown after review.** The app displays `result.get("final_response", result)`, but the graph does not currently set a `final_response` field, so the whole state dict is shown in the chat. Either add a `final_response` to the graph's output or display `draft_response` instead.
+- **Draft type.** `node_draft_response` stores the LLM's message object. Use `llm_draft.content` so `draft_response` is a plain string, which the review text area expects.
+- **Only two decisions.** There is no "reject" or "regenerate" option, and `human_in_the_loop` returns nothing for any other value of `human_decision`.
+- **Review state is in memory.** Pending drafts live in `st.session_state` and the graph checkpointer is an `InMemorySaver`, so a restart or browser refresh loses a draft awaiting review.
+- **Shared graph.** `get_agent()` is cached with `st.cache_resource`, so one compiled graph (and one checkpointer) is shared across all sessions. Thread IDs keep sessions separate.
 
 ## Security notes
 
@@ -175,3 +197,4 @@ Then open the URL Streamlit prints (usually http://localhost:8501), log in, and 
 - The app is intended to run behind HTTPS if exposed beyond localhost.
 - The SQL agent has access to every table in `member_info.db` through the standard SQL toolkit. For production, use a read-only database connection and restrict the tables it can see.
 - Member details are passed through local models only (Ollama), so no data leaves the machine, but the agents' memory notes are stored unencrypted in process memory.
+- The human review step is a control on outgoing replies, not an authorisation check: any logged-in user can approve a draft in their own session. If approvals need to be restricted, add a role check before resuming the graph.
