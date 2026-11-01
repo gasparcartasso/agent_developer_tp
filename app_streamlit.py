@@ -1,6 +1,7 @@
 import hmac
 import streamlit as st
 from app.src.triage_graph import generate_graph
+from langgraph.types import Command
 import uuid
 
 def check_login():
@@ -31,33 +32,71 @@ if st.sidebar.button("Log out"):
     st.rerun()
 
 st.title("Email triage and response")
+
 @st.cache_resource
-def get_agent() -> generate_graph:
+def get_agent():
     return generate_graph()
 
 super_agent = get_agent()
+
 if "thread_id" not in st.session_state:
     st.session_state["thread_id"] = f"{st.session_state['user']}-{uuid.uuid4().hex[:8]}"
-super_agent = generate_graph()
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
         {"role": "assistant", "content": "How can I help you with your emails today?"}
     ]
+if "pending" not in st.session_state:
+    st.session_state["pending"] = None
+
+config = {"configurable": {"thread_id": st.session_state["thread_id"]}}
+
+def add_assistant(text):
+    st.session_state.messages.append({"role": "assistant", "content": text})
+
+# 1. History
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
-if prompt := st.chat_input():
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.chat_message("user").write(prompt)
 
+# 2. Review UI, rendered on every rerun while a draft is waiting
+pending = st.session_state["pending"]
+if pending:
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                response = super_agent.invoke({"email_body": prompt, "user": st.session_state["user"], "thread": st.session_state["thread_id"], "project": "kb"})
-            except Exception as e:
-                answer = f"Sorry, I ran into an error answering that: {e}"
+        st.markdown("**Draft reply: please review before it is sent**")
+        st.caption(f"Member number: {pending.get('member_number')}")
+        edited = st.text_area("Draft (you can edit it)", value=pending["draft_response"], height=260)
+        col_approve, col_edit = st.columns(2)
+        decision = None
+        if col_approve.button("Approve & send"):
+            decision = {"human_decision": "approved"}
+        if col_edit.button("Send edited version"):
+            decision = {"human_decision": "edited", "draft_response": edited}
+
+    if decision:
         try:
-          st.write(response)
-          st.session_state.messages.append({"role": "assistant", "content": response})
-        except:
-          st.write(answer)
-          
+            with st.spinner("Sending..."):
+                result = super_agent.invoke(Command(resume=decision), config=config)
+            add_assistant(str(result.get("final_response", result)))
+        except Exception as e:
+            add_assistant(f"Sorry, I ran into an error sending that: {e}")
+        st.session_state["pending"] = None
+        st.rerun()
+
+# 3. New prompt (disabled while a draft awaits review)
+if prompt := st.chat_input(disabled=pending is not None):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    try:
+        with st.spinner("Thinking..."):
+            response = super_agent.invoke(
+                {"email_body": prompt, "user": st.session_state["user"],
+                 "thread": st.session_state["thread_id"], "project": "kb"},
+                config=config,
+            )
+        if "__interrupt__" in response:
+            st.session_state["pending"] = response
+        elif response.get("is_question_about_policy") is False:
+            add_assistant("This email is not about policy or coverage. No further action is needed.")
+        else:
+            add_assistant(str(response.get("final_response", response)))
+    except Exception as e:
+        add_assistant(f"Sorry, I ran into an error answering that: {e}")
+    st.rerun()

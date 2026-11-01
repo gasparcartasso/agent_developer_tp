@@ -1,8 +1,8 @@
-from typing import TypedDict
+from typing import TypedDict,Literal
  
 from langchain.chat_models import init_chat_model
 from langchain_ollama import ChatOllama
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from langgraph.types import Command, interrupt
@@ -28,6 +28,7 @@ class EmailState(TypedDict, total=False):
     knowledge_base_results: str
     member_info: str
     draft_response: str
+    human_decision: str
 
 class Triage(BaseModel):
     member_number: int = Field(description="The member number extracted from the email")
@@ -53,17 +54,28 @@ def node_draft_response(state:EmailState) -> EmailState:
     llm_draft = llm.invoke(f"Draft a response to this email: {state['email_body']}\n\nUse the following information to help you answer: {state['knowledge_base_results']}\n\n{state['member_info']}")
     return {'draft_response': llm_draft}
 
-def route_question(state: EmailState) -> str:
+def human_in_the_loop(state:EmailState) -> EmailState:
+    decision = interrupt({
+        "instruction": "Approve or edit this content",
+        "content": state["draft_response"],
+    })
+    if decision.get("human_decision") == "edited":
+        return {"human_decision": decision.get("human_decision"), "draft_response": decision.get("draft_response")}
+    if decision.get("human_decision") == "approved":
+        return {"human_decision": decision.get("human_decision")}
+
+def route_question_triage(state: EmailState) -> str:
     if state["is_question_about_policy"]:
         return "search_member_info"
     return END
 
 def generate_graph():
     graph = StateGraph(EmailState)
-    graph.add_node("triage_email", node_triage_email).add_node("search_knowledge_base", node_search_knowledge_base).add_node("search_member_info", node_search_member_info).add_node("draft_response", node_draft_response)
+    graph.add_node("triage_email", node_triage_email).add_node("search_knowledge_base", node_search_knowledge_base).add_node("search_member_info", node_search_member_info).add_node("draft_response", node_draft_response).add_node("human_in_the_loop", human_in_the_loop)
     graph.add_edge(START,"triage_email")
-    graph.add_conditional_edges("triage_email", route_question)
+    graph.add_conditional_edges("triage_email", route_question_triage)
     graph.add_edge('search_member_info',"search_knowledge_base")
     graph.add_edge('search_knowledge_base',"draft_response")
-    graph.add_edge("draft_response",END)
-    return graph.compile()
+    graph.add_edge("draft_response", "human_in_the_loop")
+    graph.add_edge("human_in_the_loop", END)
+    return graph.compile(InMemorySaver())

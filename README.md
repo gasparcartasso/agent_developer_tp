@@ -88,12 +88,8 @@ Both agents are built with `langchain.agents.create_agent` on `qwen3:8b` via Oll
    uv sync
    ```
 
-   This creates a `.venv` and installs the packages listed in `pyproject.toml` (pinned by `uv.lock`). If you are starting without a `pyproject.toml`, create one with the packages from [Requirements](#requirements):
+   This creates a `.venv` and installs the packages listed in `pyproject.toml` (pinned by `uv.lock`).
 
-   ```bash
-   uv init
-   uv add streamlit langchain langgraph langchain-ollama langchain-community sqlalchemy pandas pydantic pyyaml qdrant-client
-   ```
 
 2. **Pull the model**
 
@@ -155,8 +151,10 @@ Then open the URL Streamlit prints (usually http://localhost:8501), log in, and 
 │   └── member_info.csv                 # member data to load
 └── app/
     ├── data/
-    │   └── sql/
-    │       └── member_info.db          # SQLite database (generated)
+    │   ├── sql/
+    │   │    └── member_info.db          # SQLite database (generated)
+    │   └── qdrant/
+    │          └──collection/bupa cover/strorage.sqlite #Qdrant vector search (generated)
     └── src/
         ├── triage_graph.py             # LangGraph email triage workflow
         ├── agent_member_info.py        # SQL agent for member lookup
