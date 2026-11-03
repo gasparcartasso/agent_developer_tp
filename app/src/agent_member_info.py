@@ -35,7 +35,7 @@ llm = ChatOllama(
     reasoning=False
 )
 
-SKILLS_DIR = Path(__file__).parent / "skills"
+SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 # --------------------------------------------------------------------------
 # 1. RUNTIME CONTEXT: who is calling. Comes from the app, never from the LLM.

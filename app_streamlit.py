@@ -64,12 +64,14 @@ if pending:
         st.markdown("**Draft reply: please review before it is sent**")
         st.caption(f"Member number: {pending.get('member_number')}")
         edited = st.text_area("Draft (you can edit it)", value=pending["draft_response"], height=260)
-        col_approve, col_edit = st.columns(2)
+        col_approve, col_edit, col_decline = st.columns(3)
         decision = None
         if col_approve.button("Approve & send"):
             decision = {"human_decision": "approved"}
         if col_edit.button("Send edited version"):
             decision = {"human_decision": "edited", "draft_response": edited}
+        if col_decline.button("Decline"):
+            decision = {"human_decision": "declined"}
 
     if decision:
         try:

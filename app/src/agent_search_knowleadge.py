@@ -24,7 +24,7 @@ from langgraph.store.memory import InMemoryStore
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from app.src.ragging import Qdrantcollection
 
-SKILLS_DIR = Path(__file__).parent / "skills"
+SKILLS_DIR = Path(__file__).parent.parent / "skills"
 COLLECTION = "bupa cover"
 
 # Skills whose full text is injected into EVERY prompt (good for small local

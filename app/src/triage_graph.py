@@ -29,6 +29,7 @@ class EmailState(TypedDict, total=False):
     member_info: str
     draft_response: str
     human_decision: str
+    email_sent: bool
 
 class Triage(BaseModel):
     member_number: int = Field(description="The member number extracted from the email")
@@ -56,12 +57,14 @@ def node_draft_response(state:EmailState) -> EmailState:
 
 def human_in_the_loop(state:EmailState) -> EmailState:
     decision = interrupt({
-        "instruction": "Approve or edit this content",
+        "instruction": "Approve, decline or edit this content",
         "content": state["draft_response"],
     })
     if decision.get("human_decision") == "edited":
         return {"human_decision": decision.get("human_decision"), "draft_response": decision.get("draft_response")}
     if decision.get("human_decision") == "approved":
+        return {"human_decision": decision.get("human_decision")}
+    if decision.get("human_decision") == "declined":
         return {"human_decision": decision.get("human_decision")}
 
 def route_question_triage(state: EmailState) -> str:
@@ -69,13 +72,27 @@ def route_question_triage(state: EmailState) -> str:
         return "search_member_info"
     return END
 
+def node_send_email(state:EmailState) -> EmailState:
+    # Here you would implement the logic to send the email using your preferred method (e.g., SMTP, API call, etc.)
+    # For demonstration purposes, we'll just return a success message.
+    return {"email_sent": True}
+
+def route_hitl(state: EmailState) -> str:
+    if state.get("human_decision") == "approved":
+        return "send_email"
+    elif state.get("human_decision") == "edited":
+        return "send_email"
+    elif state.get("human_decision") == "declined":
+        return END
+
 def generate_graph():
     graph = StateGraph(EmailState)
-    graph.add_node("triage_email", node_triage_email).add_node("search_knowledge_base", node_search_knowledge_base).add_node("search_member_info", node_search_member_info).add_node("draft_response", node_draft_response).add_node("human_in_the_loop", human_in_the_loop)
+    graph.add_node("triage_email", node_triage_email).add_node("search_knowledge_base", node_search_knowledge_base).add_node("search_member_info", node_search_member_info).add_node("draft_response", node_draft_response).add_node("human_in_the_loop", human_in_the_loop).add_node("send_email", node_send_email)
     graph.add_edge(START,"triage_email")
     graph.add_conditional_edges("triage_email", route_question_triage)
     graph.add_edge('search_member_info',"search_knowledge_base")
     graph.add_edge('search_knowledge_base',"draft_response")
     graph.add_edge("draft_response", "human_in_the_loop")
-    graph.add_edge("human_in_the_loop", END)
+    graph.add_conditional_edges("human_in_the_loop", route_hitl)
+    graph.add_edge("send_email", END)
     return graph.compile(InMemorySaver())
