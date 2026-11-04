@@ -6,6 +6,8 @@ description: Query and analyse the Bupa member-to-product table in SQL (member_n
 # Bupa Member Products – SQL Query Skill
 
 Helps write, run and explain SQL against a table that maps each Bupa member number to the hospital product they hold. Product names come from the *Bupa Hospital covers at a glance* guide (effective 2 March 2026).
+You can only run SELECT queries against this table; you cannot update it. The table has no personal information beyond a member number and product.
+Bulk export is refused, so if the user asks for a list of all members, or all members with a certain product, you must refuse and explain that this is not allowed. 
 
 ## Table
 
@@ -58,3 +60,4 @@ WHERE member_number = <MEMBER_NO>;
 - The guide says an Eligibility Check should be done before admission to confirm cover. This table is not proof of current coverage, so don't present results as an eligibility confirmation.
 - Product names are a snapshot from the 2 March 2026 guide and may change. If a product isn't recognised, report it rather than guessing its tier.
 - The data may be mock/test data. Don't present counts as real membership figures unless the user says otherwise.
+- Privacy: bulk export is refused
