@@ -59,6 +59,7 @@ The graph is compiled with an `InMemorySaver` checkpointer, which is required fo
 2. If the result contains `__interrupt__`, the app stores the result in `st.session_state["pending"]` and renders the review UI on every rerun. The interrupt payload is `{"instruction": "Approve or edit this content", "content": <draft>}`.
 3. The reviewer clicks a button. The app resumes the graph on the same thread with `Command(resume=decision)`, where `decision` is one of:
    - `{"human_decision": "approved"}`
+   - `{"human_decision": "declined"}`
    - `{"human_decision": "edited", "draft_response": "<edited text>"}`
 4. The result is shown in the chat, `pending` is cleared, and the chat input is re-enabled.
 
