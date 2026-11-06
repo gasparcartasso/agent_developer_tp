@@ -198,3 +198,21 @@ Then open the URL Streamlit prints (usually http://localhost:8501) and log in. P
 - The SQL agent has access to every table in `member_info.db` through the standard SQL toolkit. For production, use a read-only database connection and restrict the tables it can see.
 - Member details are passed through local models only (Ollama), so no data leaves the machine, but the agents' memory notes are stored unencrypted in process memory.
 - The human review step is a control on outgoing replies, not an authorisation check: any logged-in user can approve a draft in their own session. If approvals need to be restricted, add a role check before resuming the graph.
+
+## Evaluation and testing
+
+The evaluation suite is organized into distinct categories—spanning triage, component lookups, knowledge base retrieval, end-to-end workflows, and adversarial robustness—each validating specific operational capabilities of the LangGraph agent:
+
+* **Triage (`tri-01` to `tri-10`)**: Tests the agent's core routing logic to correctly distinguish between policy-related customer questions and general administrative tasks. The system successfully triaged queries, correctly routing policy questions for policy validation while routing non-policy requests (like updating phone numbers) to end after triage.
+
+
+* **Member Lookup (`mem-01` to `mem-10`)**: Evaluates the `SearchMemberInfoAgent`'s ability to fetch correct product profiles for valid member numbers. The component accurately retrieved product mappings, properly handled non-existent accounts with clear error messages, and successfully blocked security edge cases such as SQL injection attempts (`OR 1=1`) and unauthorized bulk data exports.
+
+
+* **Knowledge Base Grounding (`kb-01` to `kb-15`)**: Assesses the retrieval-augmented generation pipeline on policy documentation, covering waiting periods, excess caps, clinical categories, and exclusions. The agent successfully grounded answers using retrieved text chunks, correctly cited source passages, and properly abstained or flagged out-of-domain questions (such as overseas dental or exact regional premium pricing) when information was missing from the knowledge base.
+
+
+* **End-to-End Workflows (`e2e-01` to `e2e-06`)**: Tests the full multi-agent loop from email ingestion and member verification to knowledge retrieval and draft response generation, culminating in a human-in-the-loop interruption checkpoint. The pipeline seamlessly chained member lookups and policy checks to draft accurate context-aware replies while pausing correctly for approval.
+
+
+* **Security & Robustness (`sec-01` to `sec-08`)**: Stress-tests the system against prompt injections, unauthorized cross-member data access, foreign languages, and adversarial context overrides. The agent successfully resisted direct system-prompt override commands and cross-account data leaks, processed non-English queries (e.g., Spanish) accurately, and handled repetitive text loops or injected text fragments gracefully without hallucinating false policy rules.
